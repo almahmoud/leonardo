@@ -8,9 +8,9 @@ import cats.syntax.all._
 import com.google.container.v1.{Cluster, NodePool}
 import org.broadinstitute.dsde.workbench.DoneCheckable
 import org.broadinstitute.dsde.workbench.google2.GKEModels.{KubernetesClusterId, KubernetesClusterName}
-import org.broadinstitute.dsde.workbench.google2.{streamFUntilDone, streamUntilDoneOrTimeout, GKEService}
+import org.broadinstitute.dsde.workbench.google2.{streamUntilDoneOrTimeout, GKEService}
 import org.broadinstitute.dsde.workbench.leonardo.LeonardoApiClient._
-import org.broadinstitute.dsde.workbench.leonardo.http.{ListAppResponse, PersistentDiskRequest}
+import org.broadinstitute.dsde.workbench.leonardo.http.PersistentDiskRequest
 import org.http4s.headers.Authorization
 import org.http4s.{AuthScheme, Credentials}
 import org.scalatest.{DoNotDiscover, ParallelTestExecution}
@@ -83,23 +83,8 @@ class BatchNodepoolCreationSpec
           _ = getAppResponse2.status should (be(AppStatus.Provisioning) or be(AppStatus.Precreating))
 
           // Wait until they both become Running
-          _ <- testTimer.sleep(60 seconds)
-          pollCreate1 = streamUntilDoneOrTimeout(
-            getApp1,
-            120,
-            10 seconds,
-            s"BatchNodepoolCreationSpec: app1 ${googleProject.value}/${appName1.value} did not finish creating after 20 minutes"
-          )(implicitly, implicitly, appInStateOrError(AppStatus.Running))
-          pollCreate2 = streamUntilDoneOrTimeout(
-            getApp2,
-            120,
-            10 seconds,
-            s"BatchNodepoolCreationSpec: app2 ${googleProject.value}/${appName2.value} did not finish creating after 20 minutes"
-          )(implicitly, implicitly, appInStateOrError(AppStatus.Running))
-          res <- List(pollCreate1, pollCreate2).parSequence
-          _ = res.foreach(_.status shouldBe AppStatus.Running)
-
-          _ <- testTimer.sleep(1 minute)
+          _ <- (LeonardoApiClient.waitUntilAppRunning(googleProject, appName1),
+                LeonardoApiClient.waitUntilAppRunning(googleProject, appName2)).parSequence_
 
           // Delete both apps
           _ <- LeonardoApiClient.deleteApp(googleProject, appName1)
@@ -116,21 +101,19 @@ class BatchNodepoolCreationSpec
           // Wait until both are deleted
           // Don't fail the test if the deletion times out because the Galaxy pre-delete job can sporadically fail.
           // See https://broadworkbench.atlassian.net/browse/IA-2471
-          listApps = LeonardoApiClient.listApps(googleProject, true)
-          implicit0(deletedDoneCheckable: DoneCheckable[List[ListAppResponse]]) = appsDeleted(Set(appName1, appName2))
-          monitorDeleteResult <- streamFUntilDone(
-            listApps,
-            120,
-            10 seconds
-          ).compile.lastOrError
-          _ <- if (!deletedDoneCheckable.isDone(monitorDeleteResult)) {
-            loggerIO.warn(
-              s"AppCreationSpec: apps ${googleProject.value}/${appName1.value} and ${googleProject.value}/${appName2.value} did not finish deleting after 20 minutes. Result: $monitorDeleteResult"
-            )
-          } else {
-            loggerIO.info(
-              s"AppCreationSpec: apps ${googleProject.value}/${appName1.value} and ${googleProject.value}/${appName2.value} delete result: $monitorDeleteResult"
-            )
+          deleteResult <- (LeonardoApiClient.waitUntilAppDeleted(googleProject, appName1),
+                           LeonardoApiClient.waitUntilAppDeleted(googleProject, appName2)).parSequence_.attempt
+
+          // TODO remove Left case when Galaxy deletion is reliable.
+          _ <- deleteResult match {
+            case Left(e) =>
+              loggerIO.warn(e)(
+                s"BatchNodepoolCreationSpec: apps ${googleProject.value}/${appName1.value} and ${googleProject.value}/${appName2.value} did not finish deleting after 20 minutes."
+              )
+            case Right(_) =>
+              loggerIO.info(
+                s"BatchNodepoolCreationSpec: apps ${googleProject.value}/${appName1.value} and ${googleProject.value}/${appName2.value} have been deleted."
+              )
           }
         } yield ()
       }
