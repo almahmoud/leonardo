@@ -83,8 +83,8 @@ class BatchNodepoolCreationSpec
           _ = getAppResponse2.status should (be(AppStatus.Provisioning) or be(AppStatus.Precreating))
 
           // Wait until they both become Running
-          _ <- (LeonardoApiClient.waitUntilAppRunning(googleProject, appName1),
-                LeonardoApiClient.waitUntilAppRunning(googleProject, appName2)).parSequence_
+          _ <- List(LeonardoApiClient.waitUntilAppRunning(googleProject, appName1),
+                    LeonardoApiClient.waitUntilAppRunning(googleProject, appName2)).parSequence_
 
           // Delete both apps
           _ <- LeonardoApiClient.deleteApp(googleProject, appName1)
@@ -101,8 +101,8 @@ class BatchNodepoolCreationSpec
           // Wait until both are deleted
           // Don't fail the test if the deletion times out because the Galaxy pre-delete job can sporadically fail.
           // See https://broadworkbench.atlassian.net/browse/IA-2471
-          deleteResult <- (LeonardoApiClient.waitUntilAppDeleted(googleProject, appName1),
-                           LeonardoApiClient.waitUntilAppDeleted(googleProject, appName2)).parSequence_.attempt
+          deleteResult <- List(LeonardoApiClient.waitUntilAppDeleted(googleProject, appName1),
+                               LeonardoApiClient.waitUntilAppDeleted(googleProject, appName2)).parSequence_.attempt
 
           // TODO remove Left case when Galaxy deletion is reliable.
           _ <- deleteResult match {
