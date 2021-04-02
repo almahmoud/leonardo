@@ -336,10 +336,7 @@ object Boot extends IOApp {
       retryPolicy = RetryPolicy[F](RetryPolicy.exponentialBackoff(30 seconds, 5))
 
       sslContext <- Resource.liftF(SslContextReader.getSSLContext())
-      httpClientWithCustomSSL <- blaze
-        .BlazeClientBuilder[F](blockingEc, Some(sslContext))
-        .withCheckEndpointAuthentication(false)
-        .resource
+      httpClientWithCustomSSL <- blaze.BlazeClientBuilder[F](blockingEc, Some(sslContext)).resource
       clientWithRetryWithCustomSSL = Retry(retryPolicy)(httpClientWithCustomSSL)
       clientWithRetryAndLogging = Http4sLogger[F](logHeaders = true, logBody = false)(clientWithRetryWithCustomSSL)
 
@@ -360,6 +357,8 @@ object Boot extends IOApp {
       dockerDao = HttpDockerDAO[F](clientWithRetryAndLogging)
       jupyterDao = new HttpJupyterDAO[F](runtimeDnsCache, clientWithRetryAndLogging, proxyConfig)
       rstudioDAO = new HttpRStudioDAO(runtimeDnsCache, clientWithRetryAndLogging, proxyConfig)
+      appDAO = new HttpAppDAO(kubernetesDnsCache, clientWithRetryAndLogging, proxyConfig)
+      appDescriptorDAO = new HttpAppDescriptorDAO(clientWithRetryAndLogging)
       serviceAccountProvider = new PetClusterServiceAccountProvider(samDao)
       authProvider = new SamAuthProvider(samDao, samAuthConfig, serviceAccountProvider, blocker)
 
@@ -392,8 +391,6 @@ object Boot extends IOApp {
       kubeService <- org.broadinstitute.dsde.workbench.google2.KubernetesService
         .resource(Paths.get(pathToCredentialJson), gkeService, blocker, semaphore)
       helmClient = new HelmInterpreter[F](blocker, semaphore)
-      appDAO = new HttpAppDAO(kubernetesDnsCache, clientWithRetryAndLogging, proxyConfig)
-      appDescriptorDAO = new HttpAppDescriptorDAO(clientWithRetryAndLogging)
 
       leoPublisher = new LeoPublisher(publisherQueue, googlePublisher)
 
