@@ -336,7 +336,11 @@ object Boot extends IOApp {
       retryPolicy = RetryPolicy[F](RetryPolicy.exponentialBackoff(30 seconds, 5))
 
       sslContext <- Resource.liftF(SslContextReader.getSSLContext())
-      httpClientWithCustomSSL <- blaze.BlazeClientBuilder[F](blockingEc, Some(sslContext)).resource
+      httpClientWithCustomSSL <- blaze
+        .BlazeClientBuilder[F](blockingEc, Some(sslContext))
+        // needed because hostname verification doesn't work
+        .withCheckEndpointAuthentication(false)
+        .resource
       clientWithRetryWithCustomSSL = Retry(retryPolicy)(httpClientWithCustomSSL)
       clientWithRetryAndLogging = Http4sLogger[F](logHeaders = true, logBody = false)(clientWithRetryWithCustomSSL)
 
